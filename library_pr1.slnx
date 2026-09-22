@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="library_pr1/library_pr1.csproj" />
+  <Project Path="PR1/PR1.csproj" />
+</Solution>
