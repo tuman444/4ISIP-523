@@ -49,5 +49,14 @@
   <ItemGroup>
     <None Include="App.config" />
   </ItemGroup>
+  <ItemGroup>
+    <WCFMetadata Include="Connected Services\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\library_pr1\library_pr1.csproj">
+      <Project>{61698d52-6142-dff9-e40c-c98a63d3ff4f}</Project>
+      <Name>library_pr1</Name>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
