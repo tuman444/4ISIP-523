@@ -97,4 +97,69 @@ app.MapGet("/me", (ClaimsPrincipal me) => new
     Role = me.FindFirstValue(ClaimTypes.Role)
 }).RequireAuthorization();
 
+
+// заказы, доступны только менеджеру
+int GetUserId(ClaimsPrincipal p) => int.Parse(p.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+Expression<Func<Order, OrderDto>> toOrderDto = o => new OrderDto(
+    o.Id, o.Date, o.Status.Name, o.UserId, o.User.Login,
+    o.ClothesOrders.Sum(i => i.Quantity * i.UnitPrice),
+    o.ClothesOrders.Select(i => new OrderItemInfo(
+        i.Size.Clothes.Name, i.Size.Name, i.Quantity, i.UnitPrice)).ToList());
+
+app.MapPost("/orders", async (CreateOrderDto dto, ClaimsPrincipal me, PR3Context db) =>
+{
+    if (dto.Items is null || dto.Items.Count == 0 || dto.Items.Any(i => i.Quantity <= 0))
+        return Results.BadRequest("Укажите позиции с количеством больше 0");
+
+    var status = await db.Statuses.FirstAsync(s => s.Name == "Новый");
+    var order = new Order { Date = DateTime.Now, StatusId = status.Id, UserId = GetUserId(me) };
+
+    foreach (var item in dto.Items)
+    {
+        var size = await db.Sizes.Include(s => s.Clothes)
+            .FirstOrDefaultAsync(s => s.Id == item.SizeId);
+
+        if (size is null)
+            return Results.BadRequest($"Размер {item.SizeId} не найден");
+        if (!size.Clothes.IsAvailable)
+            return Results.BadRequest($"Товар «{size.Clothes.Name}» снят с продажи");
+        if (size.Quantity < item.Quantity)
+            return Results.BadRequest($"Недостаточно товара «{size.Clothes.Name}» ({size.Name}): осталось {size.Quantity}");
+
+        size.Quantity -= item.Quantity;
+        size.Clothes.PurchaseCount += item.Quantity;
+        order.ClothesOrders.Add(new ClothesOrder
+        {
+            SizeId = size.Id,
+            Quantity = item.Quantity,
+            UnitPrice = size.Clothes.Price
+        });
+    }
+
+    db.Orders.Add(order);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { order.Id });
+}).RequireAuthorization();
+
+app.MapGet("/orders", async (int statusId, ClaimsPrincipal me, PR3Context db) =>
+{
+    var query = db.Orders.Where(o => o.StatusId == statusId);
+    if (!me.IsInRole("Manager"))
+    {
+        var userId = GetUserId(me);
+        query = query.Where(o => o.UserId == userId);
+    }
+    return await query.Select(toOrderDto).ToListAsync();
+}).RequireAuthorization();
+
+app.MapGet("/users/{id}/orders", async (int id, ClaimsPrincipal me, PR3Context db) =>
+{
+    if (!me.IsInRole("Manager") && GetUserId(me) != id)
+        return Results.Forbid();
+
+    var orders = await db.Orders.Where(o => o.UserId == id).Select(toOrderDto).ToListAsync();
+    return Results.Ok(orders);
+}).RequireAuthorization();
+
 app.Run();
